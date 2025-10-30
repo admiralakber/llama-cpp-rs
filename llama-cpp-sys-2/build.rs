@@ -488,8 +488,14 @@ fn main() {
 
     if cfg!(feature = "mtmd") {
         config.define("LLAMA_BUILD_COMMON", "ON");
-        // mtmd support in llama-cpp is within the tools directory
         config.define("LLAMA_BUILD_TOOLS", "ON");
+        // BUILD_TOOLS is required for mtmd library code. On iOS, CMAKE_MACOSX_BUNDLE
+        // defaults to ON, causing executables to be built as bundles which require
+        // BUNDLE_DESTINATION during install. Explicitly disable it to avoid errors.
+        let is_ios = matches!(target_os, TargetOs::Apple(AppleVariant::Other));
+        if is_ios {
+            config.define("CMAKE_MACOSX_BUNDLE", "OFF");
+        }
     }
 
     // Pass CMAKE_ environment variables down to CMake
@@ -720,7 +726,7 @@ fn main() {
 
         // Platform-specific linking
         if cfg!(target_os = "windows") {
-            // ✅ On Windows, use dynamic linking.
+            // ? On Windows, use dynamic linking.
             // Static linking is problematic because NVIDIA does not provide culibos.lib,
             // and static CUDA libraries (like cublas_static.lib) are usually not shipped.
 
@@ -733,7 +739,7 @@ fn main() {
                 println!("cargo:rustc-link-lib=cuda");
             }
         } else {
-            // ✅ On non-Windows platforms (e.g., Linux), static linking is preferred and supported.
+            // ? On non-Windows platforms (e.g., Linux), static linking is preferred and supported.
             // Static libraries like cudart_static and cublas_static depend on culibos.
 
             println!("cargo:rustc-link-lib=static=cudart_static");
