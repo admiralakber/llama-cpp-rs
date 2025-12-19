@@ -503,6 +503,7 @@ fn main() {
 
     if cfg!(feature = "mtmd") {
         config.define("LLAMA_BUILD_COMMON", "ON");
+        // LLAMA_BUILD_TOOLS must be ON to build the mtmd tools/library
         config.define("LLAMA_BUILD_TOOLS", "ON");
         // Add tools/mtmd to include path for server-common.h via CMAKE_CXX_FLAGS
         let mtmd_include = llama_src.join("tools/mtmd");
