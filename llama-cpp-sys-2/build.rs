@@ -236,39 +236,31 @@ fn main() {
     // Patch CMakeLists.txt to make llama-server executable build conditional on LLAMA_HTTPLIB
     // This allows building server-context library without the executable (which uses subprocess.h)
     if cfg!(feature = "mtmd") {
-        let cmake_lists = llama_src.join("tools/server/CMakeLists.txt");
-        eprintln!("cargo:warning=[PATCH] Checking CMakeLists.txt at: {}", cmake_lists.display());
-        if cmake_lists.exists() {
-            let content = std::fs::read_to_string(&cmake_lists).unwrap_or_else(|e| {
-                eprintln!("cargo:warning=[PATCH] Failed to read CMakeLists.txt: {}", e);
+        // Patch 1: tools/server/CMakeLists.txt (Skip llama-server executable)
+        let server_cmake = llama_src.join("tools/server/CMakeLists.txt");
+        eprintln!("cargo:warning=[PATCH] Checking tools/server/CMakeLists.txt at: {}", server_cmake.display());
+        if server_cmake.exists() {
+            let content = std::fs::read_to_string(&server_cmake).unwrap_or_else(|e| {
+                eprintln!("cargo:warning=[PATCH] Failed to read tools/server/CMakeLists.txt: {}", e);
                 return String::new();
             });
-            eprintln!("cargo:warning=[PATCH] CMakeLists.txt size: {} bytes, contains 'if (NOT LLAMA_HTTPLIB)': {}", content.len(), content.contains("if (NOT LLAMA_HTTPLIB)"));
-            // Check if already patched (look for our comment marker)
+            
             if !content.contains("# Only build if LLAMA_HTTPLIB is ON") {
-                eprintln!("cargo:warning=[PATCH] CMakeLists.txt not patched yet, applying patch...");
-                // Patch: Replace the fatal error check with conditional build
-                // Pattern at tag b7475: "# llama-server executable\n\nset(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR ...)\nendif()"
-                // Use a more flexible regex-like replacement
                 let mut patched = content.clone();
-                
+                // ... (existing server patch logic) ...
                 // First, replace the fatal error block with conditional build
-                // We need to wrap the ENTIRE executable section (from set(TARGET) to target_compile_features) in if (LLAMA_HTTPLIB)
                 if patched.contains("if (NOT LLAMA_HTTPLIB)") && patched.contains("message(FATAL_ERROR") {
-                    // Exact match for tag b7475
                     let old_section = "# llama-server executable\n\nset(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF, cannot build llama-server. Hint: to skip building server, set -DLLAMA_BUILD_SERVER=OFF\")\nendif()";
                     let new_section = "# llama-server executable\n# Only build if LLAMA_HTTPLIB is ON (allows building server-context library without executable)\n\nif (LLAMA_HTTPLIB)\nset(TARGET llama-server)";
                     
                     if patched.contains(old_section) {
                         patched = patched.replace(old_section, new_section);
                     } else {
-                        // Fallback: replace the fatal error check pattern more flexibly
-                        // Remove the fatal error block
+                        // Fallback logic
                         patched = patched.replace(
                             "\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF, cannot build llama-server. Hint: to skip building server, set -DLLAMA_BUILD_SERVER=OFF\")\nendif()",
                             ""
                         );
-                        // Add conditional wrapper before set(TARGET)
                         if patched.contains("set(TARGET llama-server)") && !patched.contains("if (LLAMA_HTTPLIB)") {
                             patched = patched.replace(
                                 "# llama-server executable\n\nset(TARGET llama-server)",
@@ -278,7 +270,6 @@ fn main() {
                     }
                 }
                 
-                // Add closing endif at the end of executable block
                 if patched != content && patched.contains("target_compile_features(${TARGET} PRIVATE cxx_std_17)") && !patched.contains("endif() # LLAMA_HTTPLIB") {
                     patched = patched.replace(
                         "target_compile_features(${TARGET} PRIVATE cxx_std_17)",
@@ -287,48 +278,65 @@ fn main() {
                 }
                 
                 if patched != content {
-                    if let Err(e) = std::fs::write(&cmake_lists, &patched) {
-                        eprintln!("cargo:warning=[PATCH] Failed to write patched CMakeLists.txt: {}", e);
+                    if let Err(e) = std::fs::write(&server_cmake, &patched) {
+                        eprintln!("cargo:warning=[PATCH] Failed to write patched tools/server/CMakeLists.txt: {}", e);
                     } else {
-                        eprintln!("cargo:warning=[PATCH] Applied CMakeLists.txt patch to skip llama-server executable on Android");
-                        debug_log!("Patched CMakeLists.txt to make llama-server executable conditional");
-                    }
-                } else if content.contains("if (NOT LLAMA_HTTPLIB)") {
-                    // Patch didn't match but we still see the old pattern - try harder
-                    eprintln!("cargo:warning=[PATCH] CMakeLists.txt patch did not match exactly, trying alternative approach");
-                    // Alternative: use regex-like replacement with more flexibility
-                    let mut alt_patched = content.clone();
-                    // Remove the fatal error block entirely and wrap everything in conditional
-                    if let Some(start_idx) = alt_patched.find("# llama-server executable") {
-                        if let Some(end_idx) = alt_patched[start_idx..].find("endif()") {
-                            let end_pos = start_idx + end_idx + 7; // +7 for "endif()"
-                            let before = &alt_patched[..start_idx];
-                            let after = &alt_patched[end_pos..];
-                            alt_patched = format!("{}# llama-server executable\n# Only build if LLAMA_HTTPLIB is ON (allows building server-context library without executable)\n\nif (LLAMA_HTTPLIB)\nset(TARGET llama-server){}", before, after);
-                            // Add closing endif before target_compile_features
-                            if let Some(compile_idx) = alt_patched.find("target_compile_features(${TARGET} PRIVATE cxx_std_17)") {
-                                if !alt_patched[..compile_idx].contains("endif() # LLAMA_HTTPLIB") {
-                                    alt_patched = alt_patched.replace(
-                                        "target_compile_features(${TARGET} PRIVATE cxx_std_17)",
-                                        "target_compile_features(${TARGET} PRIVATE cxx_std_17)\nendif() # LLAMA_HTTPLIB"
-                                    );
-                                }
-                            }
-                            if alt_patched != content {
-                                if let Err(e) = std::fs::write(&cmake_lists, &alt_patched) {
-                                    eprintln!("cargo:warning=[PATCH] Failed to write alternative patched CMakeLists.txt: {}", e);
-                                } else {
-                                    eprintln!("cargo:warning=[PATCH] Applied alternative CMakeLists.txt patch");
-                                }
-                            }
-                        }
+                        eprintln!("cargo:warning=[PATCH] Applied tools/server/CMakeLists.txt patch to skip llama-server executable");
                     }
                 }
-            } else {
-                debug_log!("CMakeLists.txt already patched");
             }
-        } else {
-            eprintln!("cargo:warning=[PATCH] CMakeLists.txt not found at: {}", cmake_lists.display());
+        }
+
+        // Patch 2: tools/CMakeLists.txt (Skip other tools that depend on common/httplib)
+        let tools_cmake = llama_src.join("tools/CMakeLists.txt");
+        eprintln!("cargo:warning=[PATCH] Checking tools/CMakeLists.txt at: {}", tools_cmake.display());
+        if tools_cmake.exists() {
+            let content = std::fs::read_to_string(&tools_cmake).unwrap_or_else(|e| {
+                eprintln!("cargo:warning=[PATCH] Failed to read tools/CMakeLists.txt: {}", e);
+                return String::new();
+            });
+
+            // We want to wrap most tools in `if (LLAMA_HTTPLIB)` but keep `server` and `mtmd` accessible.
+            // The file structure is flat add_subdirectory calls.
+            if !content.contains("# Patched by llama-cpp-rs: Tools guarded by LLAMA_HTTPLIB") {
+                let mut patched = content.clone();
+                
+                // Identify the block of tools to guard. 
+                // We'll guard everything from batched-bench to fit-params, EXCEPT server and mtmd.
+                // Since matching the whole block is fragile, we'll try to guard specific problematic ones
+                // or just wrap the whole `else()` block and extract server/mtmd.
+                
+                // Strategy: Guard 'run', 'cli', 'llama-bench', 'quantize' etc. specifically if possible, 
+                // or simpler: Wrap the whole block and un-wrap server/mtmd? No, that's messy.
+                
+                // Let's replace specific add_subdirectory calls to be conditional.
+                let tools_to_guard = vec![
+                    "batched-bench", "gguf-split", "imatrix", "llama-bench", "cli", 
+                    "completion", "perplexity", "quantize", "run", "tokenize", "tts", 
+                    "cvector-generator", "export-lora", "fit-params"
+                ];
+
+                for tool in tools_to_guard {
+                    let line = format!("add_subdirectory({})", tool);
+                    if patched.contains(&line) {
+                        patched = patched.replace(
+                            &line,
+                            &format!("if (LLAMA_HTTPLIB)\n    {}\n    endif()", line)
+                        );
+                    }
+                }
+
+                if patched != content {
+                    // Add a marker comment
+                    patched.push_str("\n# Patched by llama-cpp-rs: Tools guarded by LLAMA_HTTPLIB\n");
+                    
+                    if let Err(e) = std::fs::write(&tools_cmake, &patched) {
+                        eprintln!("cargo:warning=[PATCH] Failed to write patched tools/CMakeLists.txt: {}", e);
+                    } else {
+                        eprintln!("cargo:warning=[PATCH] Applied tools/CMakeLists.txt patch to skip unused tools");
+                    }
+                }
+            }
         }
     }
 
