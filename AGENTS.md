@@ -34,7 +34,7 @@ When asked to "verify build" or "check mobile":
 
 ## ⚠️ Prime Directives (Do Not Violate)
 1.  **MTMD is Holy**: We MUST support Multimodal (MTMD). If upstream breaks it, we fix it locally.
-2.  **OpenCL is Key**: Android depends on OpenCL. Ensure `llama-cpp-sys-2` builds with `GGML_OPENCL=ON` when the feature is enabled.
+2.  **Upstream is King**: Prioritize parity with `ggml-org/llama.cpp`. Accelerators (Vulkan/OpenCL) are nice-to-have, but CPU/Metal stability is the baseline.
 3.  **Server Deps**: `llama-cli` needs `server-context`. Ensure `CMakeLists.txt` builds `server` when `mtmd` is enabled.
 
 ## 🗣️ Common Triggers

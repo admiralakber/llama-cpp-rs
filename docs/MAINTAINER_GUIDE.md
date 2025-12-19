@@ -4,9 +4,9 @@ This repository is a private fork of [utilityai/llama-cpp-rs](https://github.com
 
 ## 🎯 Strategic Goals
 
-1.  **Stability**: We prioritize stability on mobile (Android/iOS) and Linux platforms over cutting-edge features we don't use.
+1.  **Stability**: We prioritize stability on mobile (Android/iOS) and Linux platforms. CPU and Metal (iOS/macOS) are our production baselines.
 2.  **Multimodal**: We actively support and fix build issues related to `llama.cpp`'s multimodal (MTMD) capabilities.
-3.  **Hardware Acceleration**: We treat OpenCL (Android) and Metal (iOS) as first-class citizens.
+3.  **Upstream Parity**: We follow `ggml-org/llama.cpp` closely. Experimental accelerators (Vulkan/OpenCL) are supported where possible but should not block updates.
 
 ## 🛠️ The `xtask` Commander
 
@@ -73,6 +73,6 @@ We explicitly add `tools/mtmd` to the include paths in `build.rs`. Upstream ofte
 ### 2. Server Dependency (`tools/CMakeLists.txt`)
 We force `add_subdirectory(server)` when building `mtmd` tools because `llama-cli` depends on `server-context` in newer `llama.cpp` versions.
 
-### 3. OpenCL on Android
-We enable `opencl` feature by default for Android in our consuming apps, so `llama-cpp-sys-2` must expose it correctly.
+### 3. Accelerator Support (Vulkan/OpenCL)
+We expose these features in `llama-cpp-sys-2`, but they are considered experimental/optional compared to the rock-solid CPU/Metal baseline.
 
