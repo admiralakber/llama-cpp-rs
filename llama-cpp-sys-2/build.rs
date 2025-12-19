@@ -238,7 +238,10 @@ fn main() {
     if cfg!(feature = "mtmd") {
         let cmake_lists = llama_src.join("tools/server/CMakeLists.txt");
         if cmake_lists.exists() {
-            let content = std::fs::read_to_string(&cmake_lists)?;
+            let content = std::fs::read_to_string(&cmake_lists).unwrap_or_else(|e| {
+                eprintln!("cargo:warning=[PATCH] Failed to read CMakeLists.txt: {}", e);
+                return String::new();
+            });
             // Check if already patched (look for our comment marker)
             if !content.contains("# Only build if LLAMA_HTTPLIB is ON") {
                 // Patch: Replace the fatal error check with conditional build
@@ -281,9 +284,12 @@ fn main() {
                 }
                 
                 if patched != content {
-                    std::fs::write(&cmake_lists, &patched)?;
-                    eprintln!("cargo:warning=[PATCH] Applied CMakeLists.txt patch to skip llama-server executable on Android");
-                    debug_log!("Patched CMakeLists.txt to make llama-server executable conditional");
+                    if let Err(e) = std::fs::write(&cmake_lists, &patched) {
+                        eprintln!("cargo:warning=[PATCH] Failed to write patched CMakeLists.txt: {}", e);
+                    } else {
+                        eprintln!("cargo:warning=[PATCH] Applied CMakeLists.txt patch to skip llama-server executable on Android");
+                        debug_log!("Patched CMakeLists.txt to make llama-server executable conditional");
+                    }
                 } else if content.contains("if (NOT LLAMA_HTTPLIB)") {
                     // Patch didn't match but we still see the old pattern - try harder
                     eprintln!("cargo:warning=[PATCH] CMakeLists.txt patch did not match exactly, trying alternative approach");
@@ -306,8 +312,11 @@ fn main() {
                                 }
                             }
                             if alt_patched != content {
-                                std::fs::write(&cmake_lists, &alt_patched)?;
-                                eprintln!("cargo:warning=[PATCH] Applied alternative CMakeLists.txt patch");
+                                if let Err(e) = std::fs::write(&cmake_lists, &alt_patched) {
+                                    eprintln!("cargo:warning=[PATCH] Failed to write alternative patched CMakeLists.txt: {}", e);
+                                } else {
+                                    eprintln!("cargo:warning=[PATCH] Applied alternative CMakeLists.txt patch");
+                                }
                             }
                         }
                     }
