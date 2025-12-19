@@ -395,8 +395,8 @@ impl LlamaModel {
         if attrs.is_empty()
             || attrs
                 .intersects(LlamaTokenAttr::Unknown | LlamaTokenAttr::Byte | LlamaTokenAttr::Unused)
-            || attrs.contains(LlamaTokenAttr::Control)
-                && (token == self.token_bos() || token == self.token_eos())
+            // || attrs.contains(LlamaTokenAttr::Control)
+            //    && (token == self.token_bos() || token == self.token_eos())
         {
             return Ok(Vec::new());
         }
