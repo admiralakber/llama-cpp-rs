@@ -427,36 +427,45 @@ fn main() {
         let out_dir = env::var("OUT_DIR").unwrap();
         let dummy_c = Path::new(&out_dir).join("dummy.c");
         std::fs::write(&dummy_c, "int main() { return 0; }").unwrap();
-        
+
         // Use cc crate to get compiler with proper environment setup
         let mut build = cc::Build::new();
         build.file(&dummy_c);
-        
+
         // Get the actual compiler command cc would use
         let compiler = build.try_get_compiler().unwrap();
-        
+
         // Extract include paths by checking compiler's environment
         // cc crate sets up MSVC environment internally
-        let env_include = compiler.env().iter()
+        let env_include = compiler
+            .env()
+            .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("INCLUDE"))
             .map(|(_, v)| v);
-            
+
         if let Some(include_paths) = env_include {
-            for include_path in include_paths.to_string_lossy().split(';').filter(|s| !s.is_empty()) {
+            for include_path in include_paths
+                .to_string_lossy()
+                .split(';')
+                .filter(|s| !s.is_empty())
+            {
                 bindings_builder = bindings_builder
                     .clang_arg("-isystem")
                     .clang_arg(include_path);
                 debug_log!("Added MSVC include path: {}", include_path);
             }
         }
-        
+
         // Add MSVC compatibility flags
         bindings_builder = bindings_builder
             .clang_arg(format!("--target={}", target_triple))
             .clang_arg("-fms-compatibility")
             .clang_arg("-fms-extensions");
 
-        debug_log!("Configured bindgen with MSVC toolchain for target: {}", target_triple);
+        debug_log!(
+            "Configured bindgen with MSVC toolchain for target: {}",
+            target_triple
+        );
     }
     let bindings = bindings_builder
         .generate()
@@ -502,6 +511,85 @@ fn main() {
     for (key, value) in env::vars() {
         if key.starts_with("CMAKE_") {
             config.define(&key, &value);
+        }
+    }
+
+    // extract the target-cpu config value, if specified
+    let target_cpu = std::env::var("CARGO_ENCODED_RUSTFLAGS")
+        .ok()
+        .and_then(|rustflags| {
+            rustflags
+                .split('\x1f')
+                .find(|f| f.contains("target-cpu="))
+                .and_then(|f| f.split("target-cpu=").nth(1))
+                .map(|s| s.to_string())
+        });
+
+    if target_cpu == Some("native".into()) {
+        debug_log!("Detected target-cpu=native, compiling with GGML_NATIVE");
+        config.define("GGML_NATIVE", "ON");
+    }
+    // if native isn't specified, enable specific features for ggml instead
+    else {
+        // rust code isn't using `target-cpu=native`, so llama.cpp shouldn't use GGML_NATIVE either
+        config.define("GGML_NATIVE", "OFF");
+
+        // if `target-cpu` is set set, also set -march for llama.cpp to the same value
+        if let Some(ref cpu) = target_cpu {
+            debug_log!("Setting baseline architecture: -march={}", cpu);
+            config.cflag(&format!("-march={}", cpu));
+            config.cxxflag(&format!("-march={}", cpu));
+        }
+
+        // I expect this env var to always be present
+        let features = std::env::var("CARGO_CFG_TARGET_FEATURE")
+            .expect("Env var CARGO_CFG_TARGET_FEATURE not found.");
+        debug_log!("Compiling with target features: {}", features);
+
+        // list of rust target_features here:
+        //   https://doc.rust-lang.org/reference/attributes/codegen.html#the-target_feature-attribute
+        // GGML config flags have been found by looking at:
+        //   llama.cpp/ggml/src/ggml-cpu/CMakeLists.txt
+        for feature in features.split(',') {
+            match feature {
+                "avx" => {
+                    config.define("GGML_AVX", "ON");
+                }
+                "avx2" => {
+                    config.define("GGML_AVX2", "ON");
+                }
+                "avx512bf16" => {
+                    config.define("GGML_AVX512_BF16", "ON");
+                }
+                "avx512vbmi" => {
+                    config.define("GGML_AVX512_VBMI", "ON");
+                }
+                "avx512vnni" => {
+                    config.define("GGML_AVX512_VNNI", "ON");
+                }
+                "avxvnni" => {
+                    config.define("GGML_AVX_VNNI", "ON");
+                }
+                "bmi2" => {
+                    config.define("GGML_BMI2", "ON");
+                }
+                "f16c" => {
+                    config.define("GGML_F16C", "ON");
+                }
+                "fma" => {
+                    config.define("GGML_FMA", "ON");
+                }
+                "sse4.2" => {
+                    config.define("GGML_SSE42", "ON");
+                }
+                _ => {
+                    debug_log!(
+                        "Unrecognized cpu feature: '{}' - skipping GGML config for it.",
+                        feature
+                    );
+                    continue;
+                }
+            };
         }
     }
 
@@ -624,9 +712,9 @@ fn main() {
 
     if matches!(target_os, TargetOs::Linux)
         && target_triple.contains("aarch64")
-        && !env::var(format!("CARGO_FEATURE_{}", "native".to_uppercase())).is_ok()
+        && target_cpu != Some("native".into())
     {
-        // If the native feature is not enabled, we take off the native ARM64 support.
+        // If the target-cpu is not specified as native, we take off the native ARM64 support.
         // It is useful in docker environments where the native feature is not enabled.
         config.define("GGML_NATIVE", "OFF");
         config.define("GGML_CPU_ARM_ARCH", "armv8-a");
@@ -655,6 +743,11 @@ fn main() {
                 config.cxxflag("/FS");
             }
             TargetOs::Linux => {
+                // If we are not using system provided vulkan SDK, add vulkan libs for linking
+                if let Ok(vulkan_path) = env::var("VULKAN_SDK") {
+                    let vulkan_lib_path = Path::new(&vulkan_path).join("lib");
+                    println!("cargo:rustc-link-search={}", vulkan_lib_path.display());
+                }
                 println!("cargo:rustc-link-lib=vulkan");
             }
             _ => (),
@@ -699,6 +792,10 @@ fn main() {
         config.define("GGML_OPENMP", "OFF");
     }
 
+    if cfg!(feature = "system-ggml") {
+        config.define("LLAMA_USE_SYSTEM_GGML", "ON");
+    }
+
     // General
     config
         .profile(&profile)
@@ -714,6 +811,34 @@ fn main() {
         out_dir.join("lib64").display()
     );
     println!("cargo:rustc-link-search={}", build_dir.display());
+
+    if cfg!(feature = "system-ggml") {
+        // Extract library directory from CMake's found GGML package
+        let cmake_cache = build_dir.join("build").join("CMakeCache.txt");
+        if let Ok(cache_contents) = std::fs::read_to_string(&cmake_cache) {
+            let mut ggml_lib_dirs = std::collections::HashSet::new();
+
+            // Parse CMakeCache.txt to find where GGML libraries were found
+            for line in cache_contents.lines() {
+                if line.starts_with("GGML_LIBRARY:")
+                    || line.starts_with("GGML_BASE_LIBRARY:")
+                    || line.starts_with("GGML_CPU_LIBRARY:")
+                {
+                    if let Some(lib_path) = line.split('=').nth(1) {
+                        if let Some(parent) = Path::new(lib_path).parent() {
+                            ggml_lib_dirs.insert(parent.to_path_buf());
+                        }
+                    }
+                }
+            }
+
+            // Add each unique library directory to the search path
+            for lib_dir in ggml_lib_dirs {
+                println!("cargo:rustc-link-search=native={}", lib_dir.display());
+                debug_log!("Added system GGML library path: {}", lib_dir.display());
+            }
+        }
+    }
 
     if cfg!(feature = "cuda") && !build_shared_libs {
         // Re-run build script if CUDA_PATH environment variable changes
@@ -757,10 +882,19 @@ fn main() {
     }
 
     // Link libraries
-    let llama_libs_kind = if build_shared_libs { "dylib" } else { "static" };
+    let llama_libs_kind = if build_shared_libs || cfg!(feature = "system-ggml") {
+        "dylib"
+    } else {
+        "static"
+    };
     let llama_libs = extract_lib_names(&out_dir, build_shared_libs);
     assert_ne!(llama_libs.len(), 0);
 
+    if cfg!(feature = "system-ggml") {
+        println!("cargo:rustc-link-lib={llama_libs_kind}=ggml");
+        println!("cargo:rustc-link-lib={llama_libs_kind}=ggml-base");
+        println!("cargo:rustc-link-lib={llama_libs_kind}=ggml-cpu");
+    }
     for lib in llama_libs {
         let link = format!("cargo:rustc-link-lib={}={}", llama_libs_kind, lib);
         debug_log!("LINK {link}",);

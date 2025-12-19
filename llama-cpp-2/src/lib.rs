@@ -13,7 +13,7 @@
 //!
 //! - `cuda` enables CUDA gpu support.
 //! - `sampler` adds the [`context::sample::sampler`] struct for a more rusty way of sampling.
-use std::ffi::NulError;
+use std::ffi::{c_char, NulError};
 use std::fmt::Debug;
 use std::num::NonZeroI32;
 
@@ -35,11 +35,11 @@ pub mod token;
 pub mod token_type;
 
 /// A failable result from a llama.cpp function.
-pub type Result<T> = std::result::Result<T, LLamaCppError>;
+pub type Result<T> = std::result::Result<T, LlamaCppError>;
 
 /// All errors that can occur in the llama-cpp crate.
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
-pub enum LLamaCppError {
+pub enum LlamaCppError {
     /// The backend was already initialized. This can generally be ignored as initializing the backend
     /// is idempotent.
     #[error("BackendAlreadyInitialized")]
@@ -66,6 +66,12 @@ pub enum LLamaCppError {
     #[error(transparent)]
     EmbeddingError(#[from] EmbeddingsError),
     // See [`LlamaSamplerError`]
+    /// Backend device not found
+    #[error("Backend device {0} not found")]
+    BackendDeviceNotFound(usize),
+    /// Max devices exceeded
+    #[error("Max devices exceeded. Max devices is {0}")]
+    MaxDevicesExceeded(usize),
 }
 
 /// There was an error while getting the chat template from a model.
@@ -148,6 +154,23 @@ pub enum EmbeddingsError {
     /// The given sequence index exceeds the max sequence id
     #[error("Can't use sequence embeddings with a model supporting only LLAMA_POOLING_TYPE_NONE")]
     NonePoolType,
+}
+
+/// Errors that can occur when initializing a grammar sampler
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum GrammarError {
+    /// The grammar root was not found in the grammar string
+    #[error("Grammar root not found in grammar string")]
+    RootNotFound,
+    /// The trigger word contains null bytes
+    #[error("Trigger word contains null bytes")]
+    TriggerWordNullBytes,
+    /// The grammar string or root contains null bytes
+    #[error("Grammar string or root contains null bytes")]
+    GrammarNullBytes,
+    /// The grammar call returned null
+    #[error("Grammar call returned null")]
+    NullGrammar,
 }
 
 /// Decode a error from llama.cpp into a [`DecodeError`].
@@ -349,6 +372,91 @@ pub fn llama_supports_mlock() -> bool {
     unsafe { llama_cpp_sys_2::llama_supports_mlock() }
 }
 
+/// Backend device type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlamaBackendDeviceType {
+    /// CPU device
+    Cpu,
+    /// ACCEL device
+    Accelerator,
+    /// GPU device
+    Gpu,
+    /// iGPU device
+    IntegratedGpu,
+    /// Unknown device type
+    Unknown,
+}
+
+/// A ggml backend device
+///
+/// The index is can be used from `LlamaModelParams::with_devices` to select specific devices.
+#[derive(Debug, Clone)]
+pub struct LlamaBackendDevice {
+    /// The index of the device
+    ///
+    /// The index is can be used from `LlamaModelParams::with_devices` to select specific devices.
+    pub index: usize,
+    /// The name of the device (e.g. "Vulkan0")
+    pub name: String,
+    /// A description of the device (e.g. "NVIDIA GeForce RTX 3080")
+    pub description: String,
+    /// The backend of the device (e.g. "Vulkan", "CUDA", "CPU")
+    pub backend: String,
+    /// Total memory of the device in bytes
+    pub memory_total: usize,
+    /// Free memory of the device in bytes
+    pub memory_free: usize,
+    /// Device type
+    pub device_type: LlamaBackendDeviceType,
+}
+
+/// List ggml backend devices
+#[must_use]
+pub fn list_llama_ggml_backend_devices() -> Vec<LlamaBackendDevice> {
+    let mut devices = Vec::new();
+    for i in 0..unsafe { llama_cpp_sys_2::ggml_backend_dev_count() } {
+        fn cstr_to_string(ptr: *const c_char) -> String {
+            if ptr.is_null() {
+                String::new()
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(ptr) }
+                    .to_string_lossy()
+                    .to_string()
+            }
+        }
+        let dev = unsafe { llama_cpp_sys_2::ggml_backend_dev_get(i) };
+        let props = unsafe {
+            let mut props = std::mem::zeroed();
+            llama_cpp_sys_2::ggml_backend_dev_get_props(dev, &raw mut props);
+            props
+        };
+        let name = cstr_to_string(props.name);
+        let description = cstr_to_string(props.description);
+        let backend = unsafe { llama_cpp_sys_2::ggml_backend_dev_backend_reg(dev) };
+        let backend_name = unsafe { llama_cpp_sys_2::ggml_backend_reg_name(backend) };
+        let backend = cstr_to_string(backend_name);
+        let memory_total = props.memory_total;
+        let memory_free = props.memory_free;
+        let device_type = match props.type_ {
+            llama_cpp_sys_2::GGML_BACKEND_DEVICE_TYPE_CPU => LlamaBackendDeviceType::Cpu,
+            llama_cpp_sys_2::GGML_BACKEND_DEVICE_TYPE_ACCEL => LlamaBackendDeviceType::Accelerator,
+            llama_cpp_sys_2::GGML_BACKEND_DEVICE_TYPE_GPU => LlamaBackendDeviceType::Gpu,
+            llama_cpp_sys_2::GGML_BACKEND_DEVICE_TYPE_IGPU => LlamaBackendDeviceType::IntegratedGpu,
+            _ => LlamaBackendDeviceType::Unknown,
+        };
+        devices.push(LlamaBackendDevice {
+            index: i,
+            name,
+            description,
+            backend,
+            memory_total,
+            memory_free,
+            device_type,
+        });
+    }
+    devices
+}
+
 /// Options to configure how llama.cpp logs are intercepted.
 #[derive(Default, Debug, Clone)]
 pub struct LogOptions {
@@ -358,6 +466,7 @@ pub struct LogOptions {
 impl LogOptions {
     /// If enabled, logs are sent to tracing. If disabled, all logs are suppressed. Default is for
     /// logs to be sent to tracing.
+    #[must_use]
     pub fn with_logs_enabled(mut self, enabled: bool) -> Self {
         self.disabled = !enabled;
         self
