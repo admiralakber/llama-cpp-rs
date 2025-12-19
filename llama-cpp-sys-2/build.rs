@@ -250,7 +250,7 @@ fn main() {
                 // Patch: Replace the fatal error check with conditional build
                 // Pattern at tag b7475: "# llama-server executable\n\nset(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR ...)\nendif()"
                 // Use a more flexible regex-like replacement
-                let mut patched = content;
+                let mut patched = content.clone();
                 
                 // First, replace the fatal error block with conditional build
                 // We need to wrap the ENTIRE executable section (from set(TARGET) to target_compile_features) in if (LLAMA_HTTPLIB)
