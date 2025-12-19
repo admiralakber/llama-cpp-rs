@@ -175,3 +175,12 @@ We use `cargo xtask` for maintenance automation.
     ```
 
 See [`docs/MAINTAINER_GUIDE.md`](docs/MAINTAINER_GUIDE.md) for detailed protocols.
+
+## 🤖 AI Maintainer
+
+This repository is "Agent-Aware." It contains a specific protocol file [`AGENTS.md`](AGENTS.md) (symlinked to `.cursorrules`) that teaches LLM agents how to maintain it.
+
+**To use it with Cursor:**
+1.  Open the project.
+2.  Ask the agent: *"Run the drift defender"* or *"Check for upstream updates."*
+3.  The agent will automatically execute the `xtask` workflows defined in the protocol.
