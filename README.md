@@ -1,4 +1,4 @@
-# 🦙 [llama-cpp-rs][readme] &emsp; [![Docs]][docs.rs] [![Latest Version]][crates.io] [![Lisence]][crates.io]
+# 🦙 [llama-cpp-rs (Meoslabs Fork)][readme] &emsp; [![Docs]][docs.rs] [![Latest Version]][crates.io] [![Lisence]][crates.io]
 
 [Docs]: https://img.shields.io/docsrs/llama-cpp-2.svg
 
@@ -14,10 +14,20 @@
 
 [utilityai]: https://utilityai.ca
 
-[readme]: https://github.com/utilityai/llama-cpp-rs/tree/main/llama-cpp-2
+[readme]: https://github.com/meoslabs/llama-cpp-rs/tree/main/llama-cpp-2
 
-This is the home for [llama-cpp-2][crates.io]. It also contains the [llama-cpp-sys] bindings which are updated semi-regularly
-and in sync with [llama-cpp-2][crates.io].
+This is the Meoslabs internal fork of [llama-cpp-2][crates.io]. It is effectively vendored and maintained by Meoslabs for the MEOS App Core.
+
+It contains the [llama-cpp-sys] bindings which are updated regularily and in sync with [llama-cpp-2][crates.io] and the upstream `llama.cpp`.
+
+## Why this Fork?
+
+We maintain this fork to ensure stability, performance, and specific feature support for the MEOS ecosystem, particularly:
+
+*   **Up-to-date `llama.cpp`**: We track upstream `llama.cpp` closely (targeting stable releases like `b7475`).
+*   **MTMD Support**: Enhanced build configuration for experimental Multimodal support.
+*   **OpenCL**: First-class support for OpenCL to enable hardware acceleration on Android and Linux platforms.
+*   **React Native Compatibility**: Specific tweaks to ensure the library behaves well when embedded in React Native environments (e.g., static linking improvements).
 
 This project was created with the explict goal of staying as up to date as possible with llama.cpp, as a result it is
 dead simple, very close to raw bindings, and does not follow semver meaningfully.
@@ -31,7 +41,7 @@ We maintain a super simple example of using the library:
 Clone the repo
 
 ```bash
-git clone --recursive https://github.com/utilityai/llama-cpp-rs
+git clone --recursive https://github.com/meoslabs/llama-cpp-rs
 cd llama-cpp-rs
 ```
 
@@ -150,7 +160,7 @@ total time = 954.18 ms
 Ensure that when you clone this project you also clone the submodules. This can be done with the following command:
 
 ```sh
-git clone --recursive https://github.com/utilityai/llama-cpp-rs
+git clone --recursive https://github.com/meoslabs/llama-cpp-rs
 ```
 
 or if you have already cloned the project you can run:
