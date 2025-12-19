@@ -286,8 +286,33 @@ fn main() {
                     std::fs::write(&cmake_lists, &patched)?;
                     eprintln!("cargo:warning=[PATCH] Applied CMakeLists.txt patch to skip llama-server executable on Android");
                     debug_log!("Patched CMakeLists.txt to make llama-server executable conditional");
-                } else {
-                    eprintln!("cargo:warning=[PATCH] CMakeLists.txt patch did not match - content may have changed");
+                } else if content.contains("if (NOT LLAMA_HTTPLIB)") {
+                    // Patch didn't match but we still see the old pattern - try harder
+                    eprintln!("cargo:warning=[PATCH] CMakeLists.txt patch did not match exactly, trying alternative approach");
+                    // Alternative: use regex-like replacement with more flexibility
+                    let mut alt_patched = content.clone();
+                    // Remove the fatal error block entirely and wrap everything in conditional
+                    if let Some(start_idx) = alt_patched.find("# llama-server executable") {
+                        if let Some(end_idx) = alt_patched[start_idx..].find("endif()") {
+                            let end_pos = start_idx + end_idx + 7; // +7 for "endif()"
+                            let before = &alt_patched[..start_idx];
+                            let after = &alt_patched[end_pos..];
+                            alt_patched = format!("{}# llama-server executable\n# Only build if LLAMA_HTTPLIB is ON (allows building server-context library without executable)\n\nif (LLAMA_HTTPLIB)\nset(TARGET llama-server){}", before, after);
+                            // Add closing endif before target_compile_features
+                            if let Some(compile_idx) = alt_patched.find("target_compile_features(${TARGET} PRIVATE cxx_std_17)") {
+                                if !alt_patched[..compile_idx].contains("endif() # LLAMA_HTTPLIB") {
+                                    alt_patched = alt_patched.replace(
+                                        "target_compile_features(${TARGET} PRIVATE cxx_std_17)",
+                                        "target_compile_features(${TARGET} PRIVATE cxx_std_17)\nendif() # LLAMA_HTTPLIB"
+                                    );
+                                }
+                            }
+                            if alt_patched != content {
+                                std::fs::write(&cmake_lists, &alt_patched)?;
+                                eprintln!("cargo:warning=[PATCH] Applied alternative CMakeLists.txt patch");
+                            }
+                        }
+                    }
                 }
             } else {
                 debug_log!("CMakeLists.txt already patched");
