@@ -237,13 +237,16 @@ fn main() {
     // This allows building server-context library without the executable (which uses subprocess.h)
     if cfg!(feature = "mtmd") {
         let cmake_lists = llama_src.join("tools/server/CMakeLists.txt");
+        eprintln!("cargo:warning=[PATCH] Checking CMakeLists.txt at: {}", cmake_lists.display());
         if cmake_lists.exists() {
             let content = std::fs::read_to_string(&cmake_lists).unwrap_or_else(|e| {
                 eprintln!("cargo:warning=[PATCH] Failed to read CMakeLists.txt: {}", e);
                 return String::new();
             });
+            eprintln!("cargo:warning=[PATCH] CMakeLists.txt size: {} bytes, contains 'if (NOT LLAMA_HTTPLIB)': {}", content.len(), content.contains("if (NOT LLAMA_HTTPLIB)"));
             // Check if already patched (look for our comment marker)
             if !content.contains("# Only build if LLAMA_HTTPLIB is ON") {
+                eprintln!("cargo:warning=[PATCH] CMakeLists.txt not patched yet, applying patch...");
                 // Patch: Replace the fatal error check with conditional build
                 // Pattern at tag b7475: "# llama-server executable\n\nset(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR ...)\nendif()"
                 // Use a more flexible regex-like replacement
