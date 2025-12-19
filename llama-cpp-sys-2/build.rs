@@ -239,20 +239,39 @@ fn main() {
         let cmake_lists = llama_src.join("tools/server/CMakeLists.txt");
         if cmake_lists.exists() {
             let content = std::fs::read_to_string(&cmake_lists)?;
-            // Check if already patched
-            if !content.contains("if (LLAMA_HTTPLIB)") || !content.contains("# Only build if LLAMA_HTTPLIB is ON") {
-                // Patch: Make executable build conditional
-                let patched = content.replace(
-                    "# llama-server executable\n\nset(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF, cannot build llama-server. Hint: to skip building server, set -DLLAMA_BUILD_SERVER=OFF\")\nendif()",
-                    "# llama-server executable\n# Only build if LLAMA_HTTPLIB is ON (allows building server-context library without executable)\n\nif (LLAMA_HTTPLIB)\nset(TARGET llama-server)"
-                );
-                // Add closing endif at the end of executable block
-                let patched = patched.replace(
-                    "target_compile_features(${TARGET} PRIVATE cxx_std_17)",
-                    "target_compile_features(${TARGET} PRIVATE cxx_std_17)\nendif() # LLAMA_HTTPLIB"
-                );
-                std::fs::write(&cmake_lists, patched)?;
-                debug_log!("Patched CMakeLists.txt to make llama-server executable conditional");
+            // Check if already patched (look for the conditional block we add)
+            if !content.contains("if (LLAMA_HTTPLIB)") || content.contains("message(FATAL_ERROR") {
+                // Patch: Replace the fatal error check with conditional build
+                let old_pattern = "# llama-server executable\n\nset(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF, cannot build llama-server. Hint: to skip building server, set -DLLAMA_BUILD_SERVER=OFF\")\nendif()";
+                let new_pattern = "# llama-server executable\n# Only build if LLAMA_HTTPLIB is ON (allows building server-context library without executable)\n\nif (LLAMA_HTTPLIB)\nset(TARGET llama-server)";
+                
+                let patched = if content.contains(old_pattern) {
+                    content.replace(old_pattern, new_pattern)
+                } else {
+                    // Try a more flexible match
+                    content.replace(
+                        "set(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)",
+                        "set(TARGET llama-server)\n\nif (LLAMA_HTTPLIB)"
+                    ).replace(
+                        "message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF",
+                        "// Skipped: LLAMA_HTTPLIB is OFF"
+                    )
+                };
+                
+                // Add closing endif at the end of executable block (before any existing endif)
+                let patched = if patched.contains("target_compile_features(${TARGET} PRIVATE cxx_std_17)") && !patched.contains("endif() # LLAMA_HTTPLIB") {
+                    patched.replace(
+                        "target_compile_features(${TARGET} PRIVATE cxx_std_17)",
+                        "target_compile_features(${TARGET} PRIVATE cxx_std_17)\nendif() # LLAMA_HTTPLIB"
+                    )
+                } else {
+                    patched
+                };
+                
+                if patched != content {
+                    std::fs::write(&cmake_lists, patched)?;
+                    debug_log!("Patched CMakeLists.txt to make llama-server executable conditional");
+                }
             }
         }
     }
