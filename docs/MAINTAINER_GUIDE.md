@@ -20,21 +20,29 @@ cargo run -p xtask -- --help
 cargo run -p xtask -- verify
 ```
 
-## 🔄 Upstream Synchronization Protocol
+## 🔄 Upstream Synchronization Protocol (Drift Defender)
 
-To sync with upstream `utilityai`:
+We use the "Drift Defender" protocol to stay in sync with `utilityai`. This is automated via `xtask`.
 
-1.  **Add Remote**: Ensure you have the upstream remote:
-    ```bash
-    git remote add upstream https://github.com/utilityai/llama-cpp-rs.git
-    ```
-2.  **Fetch & Merge**:
-    ```bash
-    git fetch upstream
-    git merge upstream/main
-    ```
-3.  **Resolve Conflicts**: Pay close attention to `llama-cpp-sys-2/build.rs` and `Cargo.toml`. Our feature flags (`opencl`, `mtmd`) must be preserved.
-4.  **Verify Patches**: Use `cargo xtask verify` to check if our essential patches to `CMakeLists.txt` or `build.rs` survived the merge.
+```bash
+# Run the Drift Defender
+cargo run -p xtask -- sync
+```
+
+This command will:
+1.  Fetch `upstream/main`.
+2.  Create a new branch (e.g., `chore/sync-upstream-1734685200`).
+3.  Attempt a merge.
+4.  Update submodules.
+5.  **Verify** that our critical patches are still present.
+
+### Manual Conflict Resolution
+If `xtask sync` encounters merge conflicts:
+1.  It will stop and ask you to resolve them.
+2.  **CRITICAL**: Ensure `llama-cpp-sys-2/build.rs` still contains the `mtmd` include logic.
+3.  **CRITICAL**: Ensure `llama-cpp-sys-2/llama.cpp/tools/CMakeLists.txt` includes `server` when `LLAMA_BUILD_SERVER` is on.
+4.  After resolving, run `cargo xtask verify` manually.
+5.  Commit and push the branch.
 
 ## 🧱 The "Mobile Fortress" (Build Verification)
 
