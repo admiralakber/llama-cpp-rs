@@ -197,6 +197,7 @@ fn is_hidden(e: &DirEntry) -> bool {
         .unwrap_or_default()
 }
 
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -226,6 +227,11 @@ fn main() {
     debug_log!("TARGET_DIR: {}", target_dir.display());
     debug_log!("OUT_DIR: {}", out_dir.display());
     debug_log!("BUILD_SHARED: {}", build_shared_libs);
+
+    // NOTE: We no longer need to patch subprocess.h on Android because we disable
+    // LLAMA_HTTPLIB, which skips building the llama-server executable (the only
+    // component that uses subprocess.h). The server-context library we need for
+    // MTMD doesn't use subprocess.h at all.
 
     // Make sure that changes to the llama.cpp project trigger a rebuild.
     let rebuild_on_children_of = [
@@ -491,12 +497,20 @@ fn main() {
     // crates.io, so deactivating these instead
     config.define("LLAMA_BUILD_TESTS", "OFF");
     config.define("LLAMA_BUILD_EXAMPLES", "OFF");
-    // We need server for cli/server-context dependencies, especially with mtmd
+    // We need server-context library for mtmd, but NOT the llama-server executable
+    // The executable uses subprocess.h (which has Android posix_spawn issues)
+    // The server-context library doesn't need subprocess.h at all
     if cfg!(feature = "mtmd") {
         config.define("LLAMA_BUILD_SERVER", "ON");
-        config.define("LLAMA_HTTPLIB", "ON"); // Required for server
+        // Don't build the executable - only the server-context library is needed
+        // This avoids subprocess.h dependency issues on Android
+        if matches!(target_os, TargetOs::Android) {
+            config.define("LLAMA_HTTPLIB", "OFF"); // Skip executable build on Android
+        } else {
+            config.define("LLAMA_HTTPLIB", "ON"); // Build executable on other platforms
+        }
     } else {
-        config.define("LLAMA_BUILD_SERVER", "OFF");
+    config.define("LLAMA_BUILD_SERVER", "OFF");
     }
     config.define("LLAMA_BUILD_TOOLS", "OFF");
     config.define("LLAMA_CURL", "OFF");
