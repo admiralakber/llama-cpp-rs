@@ -157,14 +157,21 @@ total time = 954.18 ms
 
 ## Hacking
 
-Ensure that when you clone this project you also clone the submodules. This can be done with the following command:
+We use `cargo xtask` for maintenance automation.
 
-```sh
-git clone --recursive https://github.com/meoslabs/llama-cpp-rs
-```
+1.  **Clone with submodules**:
+    ```sh
+    git clone --recursive https://github.com/meoslabs/llama-cpp-rs
+    ```
 
-or if you have already cloned the project you can run:
+2.  **Verify Setup**:
+    ```sh
+    cargo run -p xtask -- verify
+    ```
 
-```sh
-git submodule update --init --recursive
-```
+3.  **Sync with Upstream**:
+    ```sh
+    cargo run -p xtask -- sync
+    ```
+
+See [`docs/MAINTAINER_GUIDE.md`](docs/MAINTAINER_GUIDE.md) for detailed protocols.

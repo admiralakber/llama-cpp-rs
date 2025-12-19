@@ -10,11 +10,12 @@ Your primary directive is **Stability via Parity**: keep this fork synchronized 
 When asked to "sync", "update", or "run drift defender":
 1.  Execute: `cargo xtask sync`
 2.  **IF SUCCESS**:
+    *   The tool handles fetching, merging, and verifying.
+    *   It will prompt you to push the new `chore/sync-upstream-*` branch.
+    *   Push it: `git push -u origin <branch_name>`
     *   Report the new `llama.cpp` version/commit.
-    *   Push the branch: `git push -u origin <branch_name>`
-    *   Ask if you should open a PR.
 3.  **IF FAILURE (Conflicts)**:
-    *   Analyze the conflicts.
+    *   The tool will stop and ask for manual resolution.
     *   **CRITICAL**: Restore `llama-cpp-sys-2/build.rs` patches for `tools/mtmd`.
     *   **CRITICAL**: Restore `llama-cpp-sys-2/llama.cpp/tools/CMakeLists.txt` patches for `server`.
     *   Resolve conflicts, run `cargo xtask verify`, then commit.
