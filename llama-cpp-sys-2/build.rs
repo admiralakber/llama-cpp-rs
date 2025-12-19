@@ -491,13 +491,25 @@ fn main() {
     // crates.io, so deactivating these instead
     config.define("LLAMA_BUILD_TESTS", "OFF");
     config.define("LLAMA_BUILD_EXAMPLES", "OFF");
-    config.define("LLAMA_BUILD_SERVER", "OFF");
+    // We need server for cli/server-context dependencies, especially with mtmd
+    if cfg!(feature = "mtmd") {
+        config.define("LLAMA_BUILD_SERVER", "ON");
+        config.define("LLAMA_HTTPLIB", "ON"); // Required for server
+    } else {
+        config.define("LLAMA_BUILD_SERVER", "OFF");
+    }
     config.define("LLAMA_BUILD_TOOLS", "OFF");
     config.define("LLAMA_CURL", "OFF");
 
     if cfg!(feature = "mtmd") {
         config.define("LLAMA_BUILD_COMMON", "ON");
         config.define("LLAMA_BUILD_TOOLS", "ON");
+        // Add tools/mtmd to include path for server-common.h via CMAKE_CXX_FLAGS
+        let mtmd_include = llama_src.join("tools/mtmd");
+        // We append to existing flags if any, but cmake crate usually handles env vars.
+        // Let's try explicit define.
+        config.define("CMAKE_CXX_FLAGS", format!("-I{}", mtmd_include.display()));
+        
         // BUILD_TOOLS is required for mtmd library code. On iOS, CMAKE_MACOSX_BUNDLE
         // defaults to ON, causing executables to be built as bundles which require
         // BUNDLE_DESTINATION during install. Explicitly disable it to avoid errors.
