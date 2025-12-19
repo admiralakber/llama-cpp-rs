@@ -247,25 +247,23 @@ fn main() {
                 let mut patched = content;
                 
                 // First, replace the fatal error block with conditional build
+                // We need to wrap the ENTIRE executable section (from set(TARGET) to target_compile_features) in if (LLAMA_HTTPLIB)
                 if patched.contains("if (NOT LLAMA_HTTPLIB)") && patched.contains("message(FATAL_ERROR") {
-                    // Find the section and replace it
+                    // Exact match for tag b7475
                     let old_section = "# llama-server executable\n\nset(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF, cannot build llama-server. Hint: to skip building server, set -DLLAMA_BUILD_SERVER=OFF\")\nendif()";
                     let new_section = "# llama-server executable\n# Only build if LLAMA_HTTPLIB is ON (allows building server-context library without executable)\n\nif (LLAMA_HTTPLIB)\nset(TARGET llama-server)";
                     
                     if patched.contains(old_section) {
                         patched = patched.replace(old_section, new_section);
                     } else {
-                        // Try a more flexible match - replace line by line
+                        // Fallback: replace the fatal error check pattern more flexibly
+                        // Remove the fatal error block
                         patched = patched.replace(
-                            "set(TARGET llama-server)\n\nif (NOT LLAMA_HTTPLIB)",
-                            "set(TARGET llama-server)\n\nif (LLAMA_HTTPLIB)"
-                        );
-                        patched = patched.replace(
-                            "    message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF, cannot build llama-server. Hint: to skip building server, set -DLLAMA_BUILD_SERVER=OFF\")\nendif()",
+                            "\nif (NOT LLAMA_HTTPLIB)\n    message(FATAL_ERROR \"LLAMA_HTTPLIB is OFF, cannot build llama-server. Hint: to skip building server, set -DLLAMA_BUILD_SERVER=OFF\")\nendif()",
                             ""
                         );
-                        // Add our comment if not present
-                        if !patched.contains("# Only build if LLAMA_HTTPLIB is ON") {
+                        // Add conditional wrapper before set(TARGET)
+                        if patched.contains("set(TARGET llama-server)") && !patched.contains("if (LLAMA_HTTPLIB)") {
                             patched = patched.replace(
                                 "# llama-server executable\n\nset(TARGET llama-server)",
                                 "# llama-server executable\n# Only build if LLAMA_HTTPLIB is ON (allows building server-context library without executable)\n\nif (LLAMA_HTTPLIB)\nset(TARGET llama-server)"
