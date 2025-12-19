@@ -295,48 +295,49 @@ fn main() {
                 eprintln!("cargo:warning=[PATCH] Failed to read tools/CMakeLists.txt: {}", e);
                 return String::new();
             });
+            
+            eprintln!("cargo:warning=[PATCH] tools/CMakeLists.txt size: {}", content.len());
 
             // We want to wrap most tools in `if (LLAMA_HTTPLIB)` but keep `server` and `mtmd` accessible.
-            // The file structure is flat add_subdirectory calls.
-            if !content.contains("# Patched by llama-cpp-rs: Tools guarded by LLAMA_HTTPLIB") {
-                let mut patched = content.clone();
-                
-                // Identify the block of tools to guard. 
-                // We'll guard everything from batched-bench to fit-params, EXCEPT server and mtmd.
-                // Since matching the whole block is fragile, we'll try to guard specific problematic ones
-                // or just wrap the whole `else()` block and extract server/mtmd.
-                
-                // Strategy: Guard 'run', 'cli', 'llama-bench', 'quantize' etc. specifically if possible, 
-                // or simpler: Wrap the whole block and un-wrap server/mtmd? No, that's messy.
-                
-                // Let's replace specific add_subdirectory calls to be conditional.
-                let tools_to_guard = vec![
-                    "batched-bench", "gguf-split", "imatrix", "llama-bench", "cli", 
-                    "completion", "perplexity", "quantize", "run", "tokenize", "tts", 
-                    "cvector-generator", "export-lora", "fit-params"
-                ];
+            let mut patched = content.clone();
+            let mut changed = false;
+            
+            // List of tools that definitely break without LLAMA_HTTPLIB (because they use common/httplib)
+            // or are just unnecessary bloat for the library build.
+            let tools_to_guard = vec![
+                "batched-bench", "gguf-split", "imatrix", "llama-bench", "cli", 
+                "completion", "perplexity", "quantize", "run", "tokenize", "tts", 
+                "cvector-generator", "export-lora", "fit-params"
+            ];
 
-                for tool in tools_to_guard {
-                    let line = format!("add_subdirectory({})", tool);
-                    if patched.contains(&line) {
-                        patched = patched.replace(
-                            &line,
-                            &format!("if (LLAMA_HTTPLIB)\n    {}\n    endif()", line)
-                        );
-                    }
-                }
-
-                if patched != content {
-                    // Add a marker comment
-                    patched.push_str("\n# Patched by llama-cpp-rs: Tools guarded by LLAMA_HTTPLIB\n");
-                    
-                    if let Err(e) = std::fs::write(&tools_cmake, &patched) {
-                        eprintln!("cargo:warning=[PATCH] Failed to write patched tools/CMakeLists.txt: {}", e);
-                    } else {
-                        eprintln!("cargo:warning=[PATCH] Applied tools/CMakeLists.txt patch to skip unused tools");
+            for tool in tools_to_guard {
+                // Use a regex-like replacement that handles potential whitespace
+                // We look for "add_subdirectory(tool)" and wrap it.
+                // We check if it's already wrapped to avoid double-wrapping.
+                let target_str = format!("add_subdirectory({})", tool);
+                
+                if patched.contains(&target_str) {
+                    let guard_str = format!("if (LLAMA_HTTPLIB)\n    {}\n    endif()", target_str);
+                    // Check if already guarded (simple check)
+                    if !patched.contains(&format!("if (LLAMA_HTTPLIB)\n    {}", target_str)) { 
+                         patched = patched.replace(&target_str, &guard_str);
+                         changed = true;
+                         eprintln!("cargo:warning=[PATCH] Guarding tool '{}'", tool);
                     }
                 }
             }
+
+            if changed {
+                if let Err(e) = std::fs::write(&tools_cmake, &patched) {
+                    eprintln!("cargo:warning=[PATCH] Failed to write patched tools/CMakeLists.txt: {}", e);
+                } else {
+                    eprintln!("cargo:warning=[PATCH] Applied tools/CMakeLists.txt patch to skip unused tools");
+                }
+            } else {
+                 eprintln!("cargo:warning=[PATCH] tools/CMakeLists.txt seems to be already patched or targets missing");
+            }
+        } else {
+             eprintln!("cargo:warning=[PATCH] tools/CMakeLists.txt NOT FOUND");
         }
     }
 
